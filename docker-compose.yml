@@ -1,0 +1,8 @@
+services:
+  app:
+    build: .
+    container_name: whatsapp_crypto_app
+    volumes:
+      - .:/app
+    working_dir: /app
+    tty: true

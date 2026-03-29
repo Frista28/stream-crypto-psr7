@@ -1,0 +1,7 @@
+/vendor
+/.git
+/.idea
+/.vscode
+/.php-cs-fixer.cache
+/.phpunit.result.cache
+/.phpunit.cache
