@@ -4,7 +4,12 @@ PSR-7 stream decorators for WhatsApp-like media encryption.
 
 ## Status
 
-This repository is currently a scaffold. Tooling, package metadata, and project layout are in place, but the production stream implementation has not been added to `src/` yet.
+The repository now contains the first production crypto primitives in `src/`:
+
+- `Frista28\StreamCryptoPsr7\Crypto\MediaCrypto` for WhatsApp-style media encryption and decryption
+- `Frista28\StreamCryptoPsr7\Crypto\MediaType` for media-specific HKDF context selection
+
+The PSR-7 stream decorators described by the package goal have not been added yet.
 
 ## Quality Checks
 
@@ -33,4 +38,4 @@ The project targets PHP 8.2 and uses:
 
 ## Next Step
 
-Add the first stream decorator in `src/` together with behavior-focused tests for encryption, decryption, and PSR-7 stream semantics.
+Add the first PSR-7 stream decorator on top of the crypto core together with behavior-focused tests for encryption, decryption, and stream semantics.
