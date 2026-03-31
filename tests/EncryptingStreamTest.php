@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Frista28\StreamCryptoPsr7\Tests;
 
+use Frista28\StreamCryptoPsr7\Crypto\Exception\InvalidMediaKey;
 use Frista28\StreamCryptoPsr7\Crypto\MediaType;
 use Frista28\StreamCryptoPsr7\Stream\EncryptingStream;
 use GuzzleHttp\Psr7\Utils;
@@ -62,6 +63,29 @@ final class EncryptingStreamTest extends TestCase
         $this->expectExceptionMessage('EncryptingStream is read-only');
 
         $stream->write('nope');
+    }
+
+    public function testItThrowsOnInvalidMediaKeyWhenReading(): void
+    {
+        $stream = new EncryptingStream(
+            $this->openSampleStream('IMAGE.original'),
+            'short-key',
+            MediaType::IMAGE,
+        );
+
+        $this->expectException(InvalidMediaKey::class);
+        $stream->getContents();
+    }
+
+    public function testToStringReturnsEmptyStringOnTransformFailure(): void
+    {
+        $stream = new EncryptingStream(
+            $this->openSampleStream('IMAGE.original'),
+            'short-key',
+            MediaType::IMAGE,
+        );
+
+        self::assertSame('', (string) $stream);
     }
 
     /**

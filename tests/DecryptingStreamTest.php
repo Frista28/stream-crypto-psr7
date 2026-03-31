@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Frista28\StreamCryptoPsr7\Tests;
 
 use Composer\Autoload\ClassLoader;
+use Frista28\StreamCryptoPsr7\Crypto\Exception\InvalidCiphertext;
+use Frista28\StreamCryptoPsr7\Crypto\Exception\InvalidMac;
+use Frista28\StreamCryptoPsr7\Crypto\Exception\InvalidMediaKey;
 use Frista28\StreamCryptoPsr7\Crypto\MediaType;
 use Frista28\StreamCryptoPsr7\Stream\DecryptingStream;
 use GuzzleHttp\Psr7\Utils;
@@ -74,6 +77,56 @@ final class DecryptingStreamTest extends TestCase
         $this->expectExceptionMessage('DecryptingStream is read-only');
 
         $stream->write('nope');
+    }
+
+    public function testItThrowsOnInvalidMediaKeyWhenReading(): void
+    {
+        $stream = new DecryptingStream(
+            $this->openSampleStream('IMAGE.encrypted'),
+            'short-key',
+            MediaType::IMAGE,
+        );
+
+        $this->expectException(InvalidMediaKey::class);
+        $stream->getContents();
+    }
+
+    public function testItThrowsOnInvalidMacWhenReading(): void
+    {
+        $encryptedPayload = $this->readSampleFile('IMAGE.encrypted');
+        $tamperedPayload = substr($encryptedPayload, 0, -1) . ($encryptedPayload[-1] ^ "\x01");
+
+        $stream = new DecryptingStream(
+            Utils::streamFor($tamperedPayload),
+            $this->readSampleFile('IMAGE.key'),
+            MediaType::IMAGE,
+        );
+
+        $this->expectException(InvalidMac::class);
+        $stream->getContents();
+    }
+
+    public function testItThrowsOnTooShortCiphertextWhenReading(): void
+    {
+        $stream = new DecryptingStream(
+            Utils::streamFor('123456789'),
+            $this->readSampleFile('IMAGE.key'),
+            MediaType::IMAGE,
+        );
+
+        $this->expectException(InvalidCiphertext::class);
+        $stream->getContents();
+    }
+
+    public function testToStringReturnsEmptyStringOnTransformFailure(): void
+    {
+        $stream = new DecryptingStream(
+            $this->openSampleStream('IMAGE.encrypted'),
+            'short-key',
+            MediaType::IMAGE,
+        );
+
+        self::assertSame('', (string) $stream);
     }
 
     /**
