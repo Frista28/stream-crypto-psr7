@@ -9,23 +9,23 @@ use Frista28\StreamCryptoPsr7\Crypto\MediaType;
 use Psr\Http\Message\StreamInterface;
 
 /**
- * Read-only decorator that exposes decrypted WhatsApp media payload.
+ * Read-only decorator that exposes encrypted WhatsApp media payload.
  */
-final class DecryptingStream extends AbstractTransformingStream
+final class EncryptingStream extends AbstractTransformingStream
 {
     private readonly MediaCrypto $crypto;
 
     /**
-     * @param StreamInterface $encryptedStream Source encrypted stream (payload + MAC).
+     * @param StreamInterface $plainStream Source plaintext stream.
      * @param string $mediaKey Raw 32-byte media key.
      */
     public function __construct(
-        StreamInterface $encryptedStream,
+        StreamInterface $plainStream,
         private readonly string $mediaKey,
         private readonly MediaType $mediaType,
         ?MediaCrypto $crypto = null,
     ) {
-        parent::__construct($encryptedStream);
+        parent::__construct($plainStream);
         $this->crypto = $crypto ?? new MediaCrypto();
     }
 
@@ -34,11 +34,11 @@ final class DecryptingStream extends AbstractTransformingStream
      */
     protected function transformPayload(string $payload): string
     {
-        return $this->crypto->decrypt($payload, $this->mediaKey, $this->mediaType);
+        return $this->crypto->encrypt($payload, $this->mediaKey, $this->mediaType);
     }
 
     protected function readOnlyMessage(): string
     {
-        return 'DecryptingStream is read-only';
+        return 'EncryptingStream is read-only';
     }
 }

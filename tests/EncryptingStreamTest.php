@@ -4,46 +4,34 @@ declare(strict_types=1);
 
 namespace Frista28\StreamCryptoPsr7\Tests;
 
-use Composer\Autoload\ClassLoader;
 use Frista28\StreamCryptoPsr7\Crypto\MediaType;
-use Frista28\StreamCryptoPsr7\Stream\DecryptingStream;
+use Frista28\StreamCryptoPsr7\Stream\EncryptingStream;
 use GuzzleHttp\Psr7\Utils;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
-final class DecryptingStreamTest extends TestCase
+final class EncryptingStreamTest extends TestCase
 {
-    public function testProjectUsesExpectedNamespacePrefix(): void
-    {
-        $autoload = require __DIR__ . '/../vendor/autoload.php';
-
-        self::assertInstanceOf(ClassLoader::class, $autoload);
-
-        $prefixes = $autoload->getPrefixesPsr4();
-
-        self::assertArrayHasKey('Frista28\\StreamCryptoPsr7\\', $prefixes);
-    }
-
     #[DataProvider('sampleProvider')]
-    public function testItDecryptsSampleMediaFiles(MediaType $type, string $samplePrefix): void
+    public function testItEncryptsSampleMediaFiles(MediaType $type, string $samplePrefix): void
     {
-        $stream = new DecryptingStream(
-            $this->openSampleStream($samplePrefix . '.encrypted'),
+        $stream = new EncryptingStream(
+            $this->openSampleStream($samplePrefix . '.original'),
             $this->readSampleFile($samplePrefix . '.key'),
             $type,
         );
 
         self::assertSame(
-            $this->readSampleFile($samplePrefix . '.original'),
+            $this->readSampleFile($samplePrefix . '.encrypted'),
             (string) $stream,
         );
     }
 
-    public function testItSupportsPartialReadsAndSeekAfterDecryption(): void
+    public function testItSupportsPartialReadsAndSeekAfterEncryption(): void
     {
-        $stream = new DecryptingStream(
-            $this->openSampleStream('IMAGE.encrypted'),
+        $stream = new EncryptingStream(
+            $this->openSampleStream('IMAGE.original'),
             $this->readSampleFile('IMAGE.key'),
             MediaType::IMAGE,
         );
@@ -57,21 +45,21 @@ final class DecryptingStreamTest extends TestCase
 
         self::assertSame(64, $stream->tell());
         self::assertSame(
-            substr($this->readSampleFile('IMAGE.original'), 64, 32),
+            substr($this->readSampleFile('IMAGE.encrypted'), 64, 32),
             $stream->read(32),
         );
     }
 
     public function testItIsReadOnly(): void
     {
-        $stream = new DecryptingStream(
-            $this->openSampleStream('AUDIO.encrypted'),
+        $stream = new EncryptingStream(
+            $this->openSampleStream('AUDIO.original'),
             $this->readSampleFile('AUDIO.key'),
             MediaType::AUDIO,
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('DecryptingStream is read-only');
+        $this->expectExceptionMessage('EncryptingStream is read-only');
 
         $stream->write('nope');
     }
