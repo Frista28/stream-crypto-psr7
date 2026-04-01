@@ -81,6 +81,52 @@ final class MediaCryptoTest extends TestCase
         );
     }
 
+    public function testItGeneratesExpectedVideoSidecarDuringEncryption(): void
+    {
+        [
+            'encryptedStream' => $encryptedStream,
+            'sidecar' => $sidecar,
+        ] = $this->crypto->encryptStreamWithSidecar(
+            $this->openSampleStream('VIDEO.original'),
+            $this->readSampleFile('VIDEO.key'),
+            MediaType::VIDEO,
+        );
+
+        self::assertSame($this->readSampleFile('VIDEO.encrypted'), Utils::copyToString($encryptedStream));
+        self::assertSame($this->readSampleFile('VIDEO.sidecar'), $sidecar);
+    }
+
+    #[DataProvider('chunkSizeProvider')]
+    public function testSidecarGenerationDoesNotDependOnReadChunkSize(int $chunkSize): void
+    {
+        [
+            'encryptedStream' => $encryptedStream,
+            'sidecar' => $sidecar,
+        ] = $this->crypto->encryptStreamWithSidecar(
+            $this->openSampleStream('VIDEO.original'),
+            $this->readSampleFile('VIDEO.key'),
+            MediaType::VIDEO,
+            $chunkSize,
+        );
+
+        self::assertSame($this->readSampleFile('VIDEO.encrypted'), Utils::copyToString($encryptedStream));
+        self::assertSame($this->readSampleFile('VIDEO.sidecar'), $sidecar);
+    }
+
+    public function testItRejectsSidecarGenerationForNonStreamableMedia(): void
+    {
+        $mediaKey = random_bytes(32);
+
+        $this->expectException(CryptoOperationFailed::class);
+        $this->expectExceptionMessage('Sidecar is supported only for streamable media types');
+
+        $this->crypto->encryptStreamWithSidecar(
+            Utils::streamFor('payload'),
+            $mediaKey,
+            MediaType::IMAGE,
+        );
+    }
+
     /**
      * @return iterable<string, array{chunkSize: int}>
      */
@@ -89,5 +135,23 @@ final class MediaCryptoTest extends TestCase
         yield 'one byte' => ['chunkSize' => 1];
         yield 'seven bytes' => ['chunkSize' => 7];
         yield 'one block' => ['chunkSize' => 16];
+    }
+
+    private function readSampleFile(string $filename): string
+    {
+        $contents = file_get_contents(__DIR__ . '/../samples/' . $filename);
+
+        self::assertNotFalse($contents, sprintf('Failed to read sample file "%s"', $filename));
+
+        return $contents;
+    }
+
+    private function openSampleStream(string $filename): \Psr\Http\Message\StreamInterface
+    {
+        $handle = fopen(__DIR__ . '/../samples/' . $filename, 'rb');
+
+        self::assertNotFalse($handle, sprintf('Failed to open sample file "%s"', $filename));
+
+        return Utils::streamFor($handle);
     }
 }

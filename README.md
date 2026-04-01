@@ -2,20 +2,20 @@
 
 PSR-7 stream decorators for WhatsApp-like media encryption.
 
-## Status
+The package provides:
 
-The repository contains production crypto primitives and PSR-7 stream decorators in `src/`:
-
-- `Frista28\StreamCryptoPsr7\Crypto\MediaCrypto` for WhatsApp-style media encryption and decryption
+- `Frista28\StreamCryptoPsr7\Stream\EncryptingStream` for PSR-7 stream encryption
+- `Frista28\StreamCryptoPsr7\Stream\DecryptingStream` for PSR-7 stream decryption with MAC validation
+- `Frista28\StreamCryptoPsr7\Crypto\MediaCrypto` for lower-level string and stream APIs
 - `Frista28\StreamCryptoPsr7\Crypto\MediaType` for media-specific HKDF context selection
-- `Frista28\StreamCryptoPsr7\Stream\EncryptingStream` for on-read encryption backed by chunk-oriented crypto processing
-- `Frista28\StreamCryptoPsr7\Stream\DecryptingStream` for on-read decryption with MAC validation backed by chunk-oriented crypto processing
 
-The crypto core processes source streams in chunks instead of loading the full payload into a single PHP string before
-encrypting or decrypting it. The decorators materialize the transformed result into a seekable temporary stream on first
-read, so the public PSR-7 stream remains rewindable and seekable after transformation.
+The crypto core processes source streams in chunks instead of loading the full payload into a single PHP string. The
+decorators materialize the transformed result into a seekable temporary stream on first read, so the exposed PSR-7
+stream remains rewindable and seekable after transformation.
 
 ## Usage
+
+### Stream Decorators
 
 ```php
 <?php
@@ -40,8 +40,60 @@ $decryptingStream = new DecryptingStream(
 $decryptedPayload = (string) $decryptingStream; // hello
 ```
 
-If you need lower-level access, `MediaCrypto` also exposes `encryptStream()` and `decryptStream()` for transforming an
-existing PSR-7 stream directly.
+### Low-Level Crypto API
+
+`MediaCrypto` also exposes direct string and stream APIs when you do not need the decorators:
+
+```php
+<?php
+
+use Frista28\StreamCryptoPsr7\Crypto\MediaCrypto;
+use Frista28\StreamCryptoPsr7\Crypto\MediaType;
+use GuzzleHttp\Psr7\Utils;
+
+$crypto = new MediaCrypto();
+$mediaKey = random_bytes(32);
+
+$encrypted = $crypto->encrypt('hello', $mediaKey, MediaType::DOCUMENT);
+$decrypted = $crypto->decrypt($encrypted, $mediaKey, MediaType::DOCUMENT);
+
+$encryptedStream = $crypto->encryptStream(
+    Utils::streamFor('hello'),
+    $mediaKey,
+    MediaType::DOCUMENT,
+);
+```
+
+### Sidecar Generation
+
+For streamable media types (`VIDEO` and `AUDIO`), `MediaCrypto` can generate WhatsApp-compatible sidecar metadata in
+the same encryption pass without rereading the plaintext source stream:
+
+```php
+<?php
+
+use Frista28\StreamCryptoPsr7\Crypto\MediaCrypto;
+use Frista28\StreamCryptoPsr7\Crypto\MediaType;
+use GuzzleHttp\Psr7\Utils;
+
+$crypto = new MediaCrypto();
+$mediaKey = random_bytes(32);
+
+[
+    'encryptedStream' => $encryptedStream,
+    'sidecar' => $sidecar,
+] = $crypto->encryptStreamWithSidecar(
+    Utils::streamFor(fopen('video.mp4', 'rb')),
+    $mediaKey,
+    MediaType::VIDEO,
+);
+```
+
+The returned `sidecar` is a binary string that should be stored alongside the encrypted media object and used as
+streaming metadata for chunk validation.
+
+The library currently implements full-stream encryption/decryption and sidecar generation. Chunk-level validation and
+offset-based partial decryption are intentionally outside the current API surface.
 
 ## Quality Checks
 

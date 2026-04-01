@@ -11,6 +11,14 @@ enum MediaType: string
     case AUDIO = 'audio';
     case DOCUMENT = 'document';
 
+    public function isStreamable(): bool
+    {
+        return match ($this) {
+            self::VIDEO, self::AUDIO => true,
+            self::IMAGE, self::DOCUMENT => false,
+        };
+    }
+
     public function hkdfInfo(): string
     {
         return match ($this) {

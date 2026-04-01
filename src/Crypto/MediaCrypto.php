@@ -15,6 +15,7 @@ use Psr\Http\Message\StreamInterface;
 final class MediaCrypto
 {
     private const BLOCK_SIZE = 16;
+    private const CIPHER_ALGORITHM = 'aes-256-cbc';
     private const IV_LENGTH = 16;
     private const CIPHER_KEY_LENGTH = 32;
     private const MAC_KEY_LENGTH = 32;
@@ -39,6 +40,27 @@ final class MediaCrypto
         $stream = $this->encryptStream(Utils::streamFor($data), $mediaKey, $type);
 
         return Utils::copyToString($stream);
+    }
+
+    /**
+     * Encrypts raw binary media payload and returns both encrypted payload and sidecar.
+     *
+     * @param string $data Raw binary payload.
+     * @param string $mediaKey Raw 32-byte media key.
+     *
+     * @return array{encrypted: string, sidecar: string}
+     */
+    public function encryptWithSidecar(string $data, string $mediaKey, MediaType $type): array
+    {
+        [
+            'encryptedStream' => $stream,
+            'sidecar' => $sidecar,
+        ] = $this->encryptStreamWithSidecar(Utils::streamFor($data), $mediaKey, $type);
+
+        return [
+            'encrypted' => Utils::copyToString($stream),
+            'sidecar' => $sidecar,
+        ];
     }
 
     /**
@@ -70,6 +92,45 @@ final class MediaCrypto
         MediaType $type,
         int $chunkSize = self::STREAM_CHUNK_SIZE,
     ): StreamInterface {
+        return $this->encryptStreamInternal($plainStream, $mediaKey, $type, $chunkSize)['encryptedStream'];
+    }
+
+    /**
+     * Encrypts source stream in chunks and generates sidecar in the same pass.
+     *
+     * @param string $mediaKey Raw 32-byte media key.
+     * @param int $chunkSize Source read chunk size in bytes.
+     *
+     * @return array{encryptedStream: StreamInterface, sidecar: string}
+     */
+    public function encryptStreamWithSidecar(
+        StreamInterface $plainStream,
+        string $mediaKey,
+        MediaType $type,
+        int $chunkSize = self::STREAM_CHUNK_SIZE,
+    ): array {
+        if (!$type->isStreamable()) {
+            throw new CryptoOperationFailed('Sidecar is supported only for streamable media types');
+        }
+
+        return $this->encryptStreamInternal($plainStream, $mediaKey, $type, $chunkSize, true);
+    }
+
+    /**
+     * Encrypts source stream in chunks and optionally generates sidecar.
+     *
+     * @param string $mediaKey Raw 32-byte media key.
+     * @param int $chunkSize Source read chunk size in bytes.
+     *
+     * @return array{encryptedStream: StreamInterface, sidecar: string}
+     */
+    private function encryptStreamInternal(
+        StreamInterface $plainStream,
+        string $mediaKey,
+        MediaType $type,
+        int $chunkSize,
+        bool $generateSidecar = false,
+    ): array {
         $this->assertChunkSize($chunkSize);
         [
             'keys' => $keys,
@@ -78,6 +139,9 @@ final class MediaCrypto
             'iv' => $iv,
             'buffer' => $buffer,
         ] = $this->initializeStreamContext($mediaKey, $type);
+        $sidecar = '';
+        $sidecarBuffer = '';
+        $sidecarIv = $keys['iv'];
 
         try {
             while (true) {
@@ -103,6 +167,9 @@ final class MediaCrypto
 
                 $encryptedChunk = $this->encryptBlocksWithoutPadding($plainChunk, $keys['cipherKey'], $iv);
                 hash_update($macContext, $encryptedChunk);
+                if ($generateSidecar) {
+                    $sidecar .= $this->consumeSidecarChunk($sidecarBuffer, $sidecarIv, $encryptedChunk, $keys['macKey']);
+                }
                 $this->writeAll($encryptedStream, $encryptedChunk);
                 $iv = substr($encryptedChunk, -self::BLOCK_SIZE);
             }
@@ -111,14 +178,35 @@ final class MediaCrypto
             $finalPlainChunk = $buffer . str_repeat(chr($padLength), $padLength);
             $finalEncryptedChunk = $this->encryptBlocksWithoutPadding($finalPlainChunk, $keys['cipherKey'], $iv);
             hash_update($macContext, $finalEncryptedChunk);
+            if ($generateSidecar) {
+                $sidecar .= $this->consumeSidecarChunk(
+                    $sidecarBuffer,
+                    $sidecarIv,
+                    $finalEncryptedChunk,
+                    $keys['macKey'],
+                );
+            }
             $this->writeAll($encryptedStream, $finalEncryptedChunk);
 
-            $mac = substr(hash_final($macContext, true), 0, self::MAC_LENGTH);
+            $mac = $this->truncateMac(hash_final($macContext, true));
+            if ($generateSidecar) {
+                $sidecar .= $this->consumeSidecarChunk(
+                    $sidecarBuffer,
+                    $sidecarIv,
+                    '',
+                    $keys['macKey'],
+                    true,
+                    $mac,
+                );
+            }
             $this->writeAll($encryptedStream, $mac);
 
             $encryptedStream->rewind();
 
-            return $encryptedStream;
+            return [
+                'encryptedStream' => $encryptedStream,
+                'sidecar' => $sidecar,
+            ];
         } catch (\Throwable $exception) {
             $encryptedStream->close();
 
@@ -194,7 +282,7 @@ final class MediaCrypto
             }
 
             hash_update($macContext, $finalEncryptedChunk);
-            $expectedMac = substr(hash_final($macContext, true), 0, self::MAC_LENGTH);
+            $expectedMac = $this->truncateMac(hash_final($macContext, true));
 
             if (!hash_equals($expectedMac, $mac)) {
                 throw new InvalidMac('MAC validation failed');
@@ -260,7 +348,7 @@ final class MediaCrypto
 
         $encrypted = openssl_encrypt(
             $plainChunk,
-            'aes-256-cbc',
+            self::CIPHER_ALGORITHM,
             $cipherKey,
             OPENSSL_RAW_DATA | OPENSSL_ZERO_PADDING,
             $iv
@@ -281,7 +369,7 @@ final class MediaCrypto
 
         $decrypted = openssl_decrypt(
             $encryptedChunk,
-            'aes-256-cbc',
+            self::CIPHER_ALGORITHM,
             $cipherKey,
             OPENSSL_RAW_DATA | OPENSSL_ZERO_PADDING,
             $iv
@@ -331,6 +419,35 @@ final class MediaCrypto
     }
 
     /**
+     * Consumes encrypted bytes into sidecar windows and returns completed MAC entries.
+     */
+    private function consumeSidecarChunk(
+        string &$buffer,
+        string &$windowIv,
+        string $encryptedChunk,
+        string $macKey,
+        bool $flush = false,
+        string $suffix = '',
+    ): string {
+        $buffer .= $encryptedChunk;
+        $sidecar = '';
+
+        while (strlen($buffer) >= self::STREAM_CHUNK_SIZE) {
+            $windowChunk = substr($buffer, 0, self::STREAM_CHUNK_SIZE);
+            $sidecar .= $this->truncateMac(hash_hmac('sha256', $windowIv . $windowChunk, $macKey, true));
+            $windowIv = substr($windowChunk, -self::BLOCK_SIZE);
+            $buffer = substr($buffer, self::STREAM_CHUNK_SIZE);
+        }
+
+        if ($flush && $buffer !== '') {
+            $sidecar .= $this->truncateMac(hash_hmac('sha256', $windowIv . $buffer . $suffix, $macKey, true));
+            $buffer = '';
+        }
+
+        return $sidecar;
+    }
+
+    /**
      * Writes the full payload chunk to the destination stream.
      */
     private function writeAll(StreamInterface $stream, string $payload): void
@@ -353,6 +470,11 @@ final class MediaCrypto
         if ($chunkSize <= 0) {
             throw new CryptoOperationFailed('Chunk size must be greater than zero');
         }
+    }
+
+    private function truncateMac(string $mac): string
+    {
+        return substr($mac, 0, self::MAC_LENGTH);
     }
 
     /**
