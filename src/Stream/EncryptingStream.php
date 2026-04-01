@@ -32,9 +32,9 @@ final class EncryptingStream extends AbstractTransformingStream
     /**
      * @throws \Frista28\StreamCryptoPsr7\Crypto\Exception\CryptoException
      */
-    protected function transformPayload(string $payload): string
+    protected function transformStream(StreamInterface $stream): StreamInterface
     {
-        return $this->crypto->encrypt($payload, $this->mediaKey, $this->mediaType);
+        return $this->crypto->encryptStream($stream, $this->mediaKey, $this->mediaType);
     }
 
     protected function readOnlyMessage(): string

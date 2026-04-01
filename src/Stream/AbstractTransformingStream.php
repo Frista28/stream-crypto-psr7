@@ -5,15 +5,15 @@ declare(strict_types=1);
 namespace Frista28\StreamCryptoPsr7\Stream;
 
 use Frista28\StreamCryptoPsr7\Crypto\Exception\CryptoException;
-use GuzzleHttp\Psr7\Utils;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 
 /**
  * Base read-only decorator for stream-to-stream payload transformations.
  *
- * Transformation is deferred until the first read operation and is performed
- * as a full-buffer operation (the remaining source payload is loaded into memory).
+ * Transformation is deferred until the first read operation. The concrete
+ * implementation may process the source stream incrementally, but the
+ * transformed result is materialized as a seekable stream and cached.
  */
 abstract class AbstractTransformingStream implements StreamInterface
 {
@@ -120,16 +120,16 @@ abstract class AbstractTransformingStream implements StreamInterface
     }
 
     /**
-     * Applies the concrete payload transformation.
+     * Applies the concrete stream transformation.
      *
      * @throws CryptoException
      */
-    abstract protected function transformPayload(string $payload): string;
+    abstract protected function transformStream(StreamInterface $stream): StreamInterface;
 
     abstract protected function readOnlyMessage(): string;
 
     /**
-     * Materializes and caches transformed payload as a seekable stream.
+     * Materializes and caches transformed stream.
      *
      * @throws CryptoException
      */
@@ -143,10 +143,7 @@ abstract class AbstractTransformingStream implements StreamInterface
             $this->sourceStream->rewind();
         }
 
-        $sourcePayload = Utils::copyToString($this->sourceStream);
-        $transformedPayload = $this->transformPayload($sourcePayload);
-
-        $this->transformedStream = Utils::streamFor($transformedPayload);
+        $this->transformedStream = $this->transformStream($this->sourceStream);
 
         return $this->transformedStream;
     }

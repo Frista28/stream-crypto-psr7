@@ -8,8 +8,12 @@ The repository contains production crypto primitives and PSR-7 stream decorators
 
 - `Frista28\StreamCryptoPsr7\Crypto\MediaCrypto` for WhatsApp-style media encryption and decryption
 - `Frista28\StreamCryptoPsr7\Crypto\MediaType` for media-specific HKDF context selection
-- `Frista28\StreamCryptoPsr7\Stream\EncryptingStream` for lazy on-read encryption
-- `Frista28\StreamCryptoPsr7\Stream\DecryptingStream` for lazy on-read decryption with MAC validation
+- `Frista28\StreamCryptoPsr7\Stream\EncryptingStream` for on-read encryption backed by chunk-oriented crypto processing
+- `Frista28\StreamCryptoPsr7\Stream\DecryptingStream` for on-read decryption with MAC validation backed by chunk-oriented crypto processing
+
+The crypto core processes source streams in chunks instead of loading the full payload into a single PHP string before
+encrypting or decrypting it. The decorators materialize the transformed result into a seekable temporary stream on first
+read, so the public PSR-7 stream remains rewindable and seekable after transformation.
 
 ## Usage
 
@@ -35,6 +39,9 @@ $decryptingStream = new DecryptingStream(
 
 $decryptedPayload = (string) $decryptingStream; // hello
 ```
+
+If you need lower-level access, `MediaCrypto` also exposes `encryptStream()` and `decryptStream()` for transforming an
+existing PSR-7 stream directly.
 
 ## Quality Checks
 
