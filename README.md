@@ -13,6 +13,17 @@ The crypto core processes source streams in chunks instead of loading the full p
 decorators materialize the transformed result into a seekable temporary stream on first read, so the exposed PSR-7
 stream remains rewindable and seekable after transformation.
 
+## Requirements
+
+- PHP 8.2 or newer
+- `ext-openssl`
+
+## Installation
+
+```bash
+composer require frista28/stream-crypto-psr7
+```
+
 ## Usage
 
 ### Stream Decorators
